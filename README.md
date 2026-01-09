@@ -3,6 +3,10 @@
 
 ## < Version >	
 
+Ubuntu : 20.04
+
+CoppeliaSim : 4.9.0_Edu
+
 Python: 3.10.19	
 
 PyTorch: 2.6.0+cu126	
