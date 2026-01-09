@@ -26,7 +26,9 @@ Device: NVIDIA GeForce RTX 3060
 ## < Code >
 
 #### load_scene.py
-: ttt파일 coppeliaSim으로 열게 해주는 코드, ZMQ library를 사용할 경우 코드 실행 전에 coppeliasim이 먼저 실행되어있어야 하므로 강화학습 코드 실행 전에 이 코드를 실행해주면 된다. 아니면 직접 coppeliasim 켜도 됨
+: 특정 ttt파일 coppeliaSim으로 열게 해주는 코드, 
+
+ZMQ library를 사용할 경우 코드 실행 전에 coppeliasim이 먼저 실행되어있어야 하므로 coppelia Sim 먼저 키고, 이 코드 실행해서 파일 불러온 뒤, 강화학습 코드 실행시키면 된다.
 
 #### barista_2D_env.py
 : 2D 강화학습 환경. safety_rl_2dof.ttt 파일 기준의 환경
