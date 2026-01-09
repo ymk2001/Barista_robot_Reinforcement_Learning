@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+env/
+venv/
+.env
+
+.vscode/
+.idea/
+
+
+images/
+
+ppo_robot_tensorboard/
+
+*.zip
