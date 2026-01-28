@@ -5,6 +5,8 @@ import numpy as np
 import cv2
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 import os
+import time
+
 # PyRep말고 CoppeliaSim ZMQ 내부 라이브러리 사용
 class Barista_2D_Env(gym.Env):
     metadata = {'render_modes': ['human', 'rgb_array']}
@@ -12,12 +14,14 @@ class Barista_2D_Env(gym.Env):
     def __init__(self):
         super(Barista_2D_Env, self).__init__()
 
+
         self.client = RemoteAPIClient()
         self.sim = self.client.getObject('sim')
 
         self.save_dir = "images"  # 이미지를 저장할 폴더 이름
         self.save_interval = 100  # 몇 스텝마다 저장할지
         self.step_count = 0
+        self.current_step = 0
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
             print(f"폴더 생성 완료: {self.save_dir}")
@@ -30,7 +34,7 @@ class Barista_2D_Env(gym.Env):
             self.sim.getSimulationState()
             print("CoppeliaSim 연결 성공")
         except Exception as e:
-            print("CoppeliaSim 연결 실패.")
+            print("CoppeliaSim 연결 실패. 시뮬레이터를 켜주세요.")
             raise e
 
         self.client.setStepping(True)
@@ -75,6 +79,9 @@ class Barista_2D_Env(gym.Env):
         # 이미지 데이터 받기
         img_data, res = self.sim.getVisionSensorImg(self.camera)
 
+        if len(img_data) ==0:
+            return np.zeros((self.img_height, self.img_width,1), dtype=np.unit8)
+
         # 바이트 스트링을 uint8 Numpy 배열로 변환
         img = np.frombuffer(img_data, dtype=np.uint8)
 
@@ -94,21 +101,53 @@ class Barista_2D_Env(gym.Env):
             file_name = f"{self.save_dir}/step_{self.step_count:07d}.png"
             cv2.imwrite(file_name, img)
             #print(f"Saved: {file_name}")
+        
         self.step_count += 1
 
         # 차원 추가 (H, W, 1) - CNN 입력용
-        img = np.expand_dims(img, axis=-1)
+        img = np.expand_dims(img, axis=-1)  #(H, W, 1)
 
         return img
+    
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
-        print("리셋")
+        print("환경 리셋")
         self.sim.stopSimulation()
-        while self.sim.getSimulationState() != self.sim.simulation_stopped:
-            pass
-
+        time.sleep(0.1)
         self.sim.startSimulation()
+       
+        """
+        # 관절을 랜덤 위치로 초기화 (Position Loss 시뮬레이션)
+        if options and options.get('random_start', False):
+            for joint in [self.joint_1, self.joint_2]:
+                random_pos = np.random.uniform(-np.pi, np.pi)
+                self.sim.setJointPosition(joint, random_pos)
+        """
+
+        # 1. 관절 각도를 랜덤하게 설정
+        # 범위: -1 ~ 1 라디안 (-180도 ~ 180도)
+        # random_j1 = np.random.uniform(-1.0, 1.0)
+
+        # 30도를 라디안으로 변환 (약 0.52 rad)
+        limit_angle = 30 * (np.pi / 180) 
+        
+        # 50% 확률로 왼쪽 구간(-180 ~ -30) 또는 오른쪽 구간(30 ~ 180) 선택
+        if np.random.rand() < 0.5:
+            # 왼쪽 구간: -pi(-180도) ~ -limit_angle(-30도)
+            random_j1 = np.random.uniform(-np.pi, -limit_angle)
+        else:
+            # 오른쪽 구간: limit_angle(30도) ~ pi(180도)
+            random_j1 = np.random.uniform(limit_angle, np.pi)
+
+        random_j2 = np.random.uniform(-np.pi/2, np.pi/2)
+
+        self.sim.setJointPosition(self.joint_1, random_j1)
+        self.sim.setJointPosition(self.joint_2, random_j2)
+
+        self.current_step = 0   # [추가] 에피소드 시작 시 스텝 0으로 초기화
+
+
         self.client.step()  # 첫 프레임 진행
 
         obs = self._get_vision_obs()
@@ -118,6 +157,34 @@ class Barista_2D_Env(gym.Env):
     def step(self, action):
         # print("action 값 :", action)
 
+        # ---------------------------------------------------------
+        # 1. Action 적용 (속도 기반 제어로 변경)
+        # ---------------------------------------------------------
+        MAX_VELOCITY = 2.0  # 최대 각속도 (rad/s)
+        
+        action = np.clip(action, -1.0, 1.0)
+        target_velocities = action * MAX_VELOCITY
+
+        self.sim.setJointTargetVelocity(self.joint_1, float(target_velocities[0]))
+        self.sim.setJointTargetVelocity(self.joint_2, float(target_velocities[1]))
+
+        """
+                joints = [self.joint_1, self.joint_2]
+
+        for i, joint_handle in enumerate(joints):
+            velocity = float(target_velocities[i])
+            
+            # 속도 기반 제어 (더 안정적)
+            self.sim.setJointTargetVelocity(joint_handle, velocity)
+            
+            # 충분한 토크 제공
+            self.sim.setJointMaxForce(joint_handle, 100.0)
+
+
+        """
+
+
+        """
         # ---------------------------------------------------------
         # 1. Action (Torque) 적용 [Reacher-v5 방식]
         # ---------------------------------------------------------
@@ -136,6 +203,7 @@ class Barista_2D_Env(gym.Env):
 
             self.sim.setJointTargetForce(joint_handle, torque)
 
+        """
 
         # 물리 엔진 진행
         self.client.step()
@@ -149,20 +217,20 @@ class Barista_2D_Env(gym.Env):
         target_pos = np.array(self.sim.getObjectPosition(self.target, -1))
         distance = np.linalg.norm(end_pos - target_pos)
 
-        reward_dist = -distance
+        reward_dist = -distance * 0.5
 
         # 제어(Torque) 패널티
         # 힘을 많이 쓸수록 감점 (에너지 효율)
-        reward_control = -0.1 * np.sum(np.square(action))
+        reward_control = -0.01 * np.sum(np.square(action))
 
         # reward = 보상 + 패널티
         reward = reward_dist + reward_control
 
         # target에 도착하면 reset
         terminated = False
-        if distance < 0.5:
+        if distance < 0.1:
             print(f"목표 도착! (Dist: {distance:.3f})")
-            reward += 1.0
+            reward += 2.0
             terminated = True
 
         obs = self._get_vision_obs()
@@ -172,7 +240,14 @@ class Barista_2D_Env(gym.Env):
             "reward_ctrl": reward_control
         }
 
-        return obs, reward, terminated, False, info
+        self.current_step += 1
+        if self.current_step >= 500: # 500 스텝 넘으면 강제 종료
+            truncated = True # gymnasium 최신 버전은 terminated 대신 truncated 사용 권장
+        else:
+            truncated = False
+
+        return obs, reward, terminated, truncated, info
 
     def close(self):
         self.sim.stopSimulation()
+        print("환경 종료")
