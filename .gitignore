@@ -11,7 +11,8 @@ venv/
 
 
 images/
-
 ppo_robot_tensorboard/
+wandb/
+exp/
 
 *.zip

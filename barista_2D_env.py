@@ -97,9 +97,9 @@ class Barista_2D_Env(gym.Env):
         img = cv2.resize(img, (self.img_width, self.img_height), interpolation=cv2.INTER_AREA)
 
         # 이미지가 어떻게 보이는 지 저장 (interval step 마다)
-        if self.step_count % self.save_interval == 0:
-            file_name = f"{self.save_dir}/step_{self.step_count:07d}.png"
-            cv2.imwrite(file_name, img)
+        # if self.step_count % self.save_interval == 0:
+        #     file_name = f"{self.save_dir}/step_{self.step_count:07d}.png"
+        #     cv2.imwrite(file_name, img)
             #print(f"Saved: {file_name}")
         
         self.step_count += 1
@@ -114,9 +114,13 @@ class Barista_2D_Env(gym.Env):
 
         print("환경 리셋")
         self.sim.stopSimulation()
-        time.sleep(0.1)
+        while self.sim.getSimulationState() != self.sim.simulation_stopped:
+            time.sleep(0.1)
+
+            # [핵심 수정 2] 리셋할 때 동기화가 풀릴 수 있으니 다시 한번 겁니다.
+        self.client.setStepping(True)
+
         self.sim.startSimulation()
-       
         """
         # 관절을 랜덤 위치로 초기화 (Position Loss 시뮬레이션)
         if options and options.get('random_start', False):
@@ -137,6 +141,7 @@ class Barista_2D_Env(gym.Env):
             # 왼쪽 구간: -pi(-180도) ~ -limit_angle(-30도)
             random_j1 = np.random.uniform(-np.pi, -limit_angle)
         else:
+
             # 오른쪽 구간: limit_angle(30도) ~ pi(180도)
             random_j1 = np.random.uniform(limit_angle, np.pi)
 
@@ -146,7 +151,8 @@ class Barista_2D_Env(gym.Env):
         self.sim.setJointPosition(self.joint_2, random_j2)
 
         self.current_step = 0   # [추가] 에피소드 시작 시 스텝 0으로 초기화
-
+        # python과 coppeliasim 동기화
+        self.sim.setBoolParam(self.sim.boolparam_realtime_simulation, 0)
 
         self.client.step()  # 첫 프레임 진행
 
@@ -160,13 +166,16 @@ class Barista_2D_Env(gym.Env):
         # ---------------------------------------------------------
         # 1. Action 적용 (속도 기반 제어로 변경)
         # ---------------------------------------------------------
-        MAX_VELOCITY = 2.0  # 최대 각속도 (rad/s)
+        MAX_VELOCITY = 0.8  # 최대 각속도 (rad/s)
         
         action = np.clip(action, -1.0, 1.0)
         target_velocities = action * MAX_VELOCITY
 
-        self.sim.setJointTargetVelocity(self.joint_1, float(target_velocities[0]))
-        self.sim.setJointTargetVelocity(self.joint_2, float(target_velocities[1]))
+        joints = [self.joint_1, self.joint_2]
+
+        for i, joint_handle in enumerate(joints):
+            self.sim.setJointTargetVelocity(joint_handle, float(target_velocities[i]))
+            self.sim.setJointMaxForce(joint_handle, 50.0)
 
         """
                 joints = [self.joint_1, self.joint_2]
@@ -230,7 +239,7 @@ class Barista_2D_Env(gym.Env):
         terminated = False
         if distance < 0.1:
             print(f"목표 도착! (Dist: {distance:.3f})")
-            reward += 2.0
+            reward += 10.0
             terminated = True
 
         obs = self._get_vision_obs()
@@ -241,7 +250,7 @@ class Barista_2D_Env(gym.Env):
         }
 
         self.current_step += 1
-        if self.current_step >= 500: # 500 스텝 넘으면 강제 종료
+        if self.current_step >= 3000: # 500 스텝 넘으면 강제 종료
             truncated = True # gymnasium 최신 버전은 terminated 대신 truncated 사용 권장
         else:
             truncated = False
