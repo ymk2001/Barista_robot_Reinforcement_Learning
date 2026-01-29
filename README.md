@@ -23,6 +23,9 @@ Device: NVIDIA GeForce RTX 3060
 
 ``` pip install -r requirements.txt ```
 
+
+``` pip install wandb ```
+
 ## < Code >
 
 #### load_scene.py
@@ -33,8 +36,11 @@ ZMQ library를 사용할 경우 코드 실행 전에 coppeliasim이 먼저 실�
 #### barista_2D_env.py
 : 2D 강화학습 환경. safety_rl_2dof.ttt 파일 기준의 환경
 
-#### rl_test.py
+#### train.py
 : 강화학습 main 실행 코드
+
+#### test_model.py
+: model test 코드
 
 참고한 Document : Reacher in Mujoco Document --> https://gymnasium.farama.org/environments/mujoco/reacher/
 
