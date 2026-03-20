@@ -45,7 +45,15 @@ class Barista_2D_Env(gym.Env):
             self.joint_2 = self.sim.getObject('/Base/joint1/link1/joint2')
             self.camera = self.sim.getObject('/Vision_Sensor')
             self.end_effector = self.sim.getObject('/Base/joint1/link1/joint2/link2/End_Effector')
-            self.target = self.sim.getObject('/Target')
+            self.target1 = self.sim.getObject('/FirstTarget')
+            self.target2 = self.sim.getObject('/EndTarget')
+
+            self.wall = self.sim.getObject('/Plane/Wall')
+            self.link1 = self.sim.getObject('/Base/joint1/link1')
+            self.link2 = self.sim.getObject('/Base/joint1/link1/joint2/link2')
+
+            self.machine1 = self.sim.getObject('/Machine1')
+            self.machine2 = self.sim.getObject('/Machine2')
 
 
             # =======================================================================
@@ -66,21 +74,32 @@ class Barista_2D_Env(gym.Env):
         # Action Space  (Reacher Document 참고함)
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
 
+
         # Observation Space
+        
         self.img_width = 84
         self.img_height = 84
+
+        self.observation_space = spaces.Dict({
+            "image": spaces.Box(low=0, high=255, shape=(84,84,1), dtype = np.uint8),
+            "prev_action": spaces.Box(low=-1.0, high=1.0, shape = (2,), dtype=np.float32)
+        })
+        self.last_action = np.zeros(2, dtype=np.float32)
+
+        """
         self.observation_space = spaces.Box(
             low=0, high=255,
             shape=(self.img_height, self.img_width, 1),
             dtype=np.uint8
         )
-
+        """
+    
     def _get_vision_obs(self):
         # 이미지 데이터 받기
         img_data, res = self.sim.getVisionSensorImg(self.camera)
 
         if len(img_data) ==0:
-            return np.zeros((self.img_height, self.img_width,1), dtype=np.unit8)
+            return np.zeros((self.img_height, self.img_width,1), dtype=np.uint8)
 
         # 바이트 스트링을 uint8 Numpy 배열로 변환
         img = np.frombuffer(img_data, dtype=np.uint8)
@@ -109,6 +128,15 @@ class Barista_2D_Env(gym.Env):
 
         return img
     
+    def _get_obs(self):
+        img = self._get_vision_obs()
+        return{
+            "image": img,
+            "prev_action": self.last_action.astype(np.float32)
+        }
+    
+
+        
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
@@ -117,7 +145,7 @@ class Barista_2D_Env(gym.Env):
         while self.sim.getSimulationState() != self.sim.simulation_stopped:
             time.sleep(0.1)
 
-            # [핵심 수정 2] 리셋할 때 동기화가 풀릴 수 있으니 다시 한번 겁니다.
+        # [핵심 수정 2] 리셋할 때 동기화가 풀릴 수 있으니 다시 한번 겁니다.
         self.client.setStepping(True)
 
         self.sim.startSimulation()
@@ -133,17 +161,19 @@ class Barista_2D_Env(gym.Env):
         # 범위: -1 ~ 1 라디안 (-180도 ~ 180도)
         # random_j1 = np.random.uniform(-1.0, 1.0)
 
-        # 30도를 라디안으로 변환 (약 0.52 rad)
-        limit_angle = 30 * (np.pi / 180) 
+        # 10도와 110도를 라디안으로 변환
+        limit_angle = 10 * (np.pi / 180) 
+        max_angle = 110 * (np.pi / 180)
+    
         
         # 50% 확률로 왼쪽 구간(-180 ~ -30) 또는 오른쪽 구간(30 ~ 180) 선택
         if np.random.rand() < 0.5:
             # 왼쪽 구간: -pi(-180도) ~ -limit_angle(-30도)
-            random_j1 = np.random.uniform(-np.pi, -limit_angle)
+            random_j1 = np.random.uniform(-max_angle, -limit_angle)
         else:
 
             # 오른쪽 구간: limit_angle(30도) ~ pi(180도)
-            random_j1 = np.random.uniform(limit_angle, np.pi)
+            random_j1 = np.random.uniform(limit_angle, max_angle)
 
         random_j2 = np.random.uniform(-np.pi/2, np.pi/2)
 
@@ -153,10 +183,11 @@ class Barista_2D_Env(gym.Env):
         self.current_step = 0   # [추가] 에피소드 시작 시 스텝 0으로 초기화
         # python과 coppeliasim 동기화
         self.sim.setBoolParam(self.sim.boolparam_realtime_simulation, 0)
+        self.last_action = np.zeros(2, dtype=np.float32)
 
         self.client.step()  # 첫 프레임 진행
 
-        obs = self._get_vision_obs()
+        obs = self._get_obs()
         info = {}
         return obs, info
 
@@ -167,6 +198,8 @@ class Barista_2D_Env(gym.Env):
         # 1. Action 적용 (속도 기반 제어로 변경)
         # ---------------------------------------------------------
         MAX_VELOCITY = 0.8  # 최대 각속도 (rad/s)
+
+        
         
         action = np.clip(action, -1.0, 1.0)
         target_velocities = action * MAX_VELOCITY
@@ -222,35 +255,89 @@ class Barista_2D_Env(gym.Env):
         # ---------------------------------------------------------
 
         # 거리 보상
-        end_pos = np.array(self.sim.getObjectPosition(self.end_effector, -1))
-        target_pos = np.array(self.sim.getObjectPosition(self.target, -1))
-        distance = np.linalg.norm(end_pos - target_pos)
+        # Joint2와 Target1 간의 거리
+        j2_pos = np.array(self.sim.getObjectPosition(self.joint_2, -1))
+        target1_pos = np.array(self.sim.getObjectPosition(self.target1, -1))
+        distance_j2 = np.linalg.norm(j2_pos - target1_pos)
 
-        reward_dist = -distance * 0.5
+        # 엔드이펙터와 Target2 간의 거리
+        end_pos = np.array(self.sim.getObjectPosition(self.end_effector, -1))
+        target_pos = np.array(self.sim.getObjectPosition(self.target2, -1))
+        distance_ee = np.linalg.norm(end_pos - target_pos)
+
+        reward_dist = 2.0 *(np.exp(-2.0 * distance_j2)+np.exp(-2.0 * distance_ee))
 
         # 제어(Torque) 패널티
         # 힘을 많이 쓸수록 감점 (에너지 효율)
         reward_control = -0.01 * np.sum(np.square(action))
 
-        # reward = 보상 + 패널티
-        reward = reward_dist + reward_control
+        
+        # 각 링크와 벽의 충돌 감지
+        collisions = {
+            f"{part}_{target}": self.sim.checkCollision(part_obj, target_obj)[0]
+            for part, part_obj in {
+                "link1": self.link1,
+                "link2": self.link2,
+                "ee": self.end_effector,
+            }.items()
+            for target, target_obj in {
+                "wall": self.wall,
+                "machine1": self.machine1,
+                "machine2": self.machine2,
+            }.items()
+        }
+        collision_with_wall = any(collisions[k] for k in ["link1_wall", "link2_wall", "ee_wall"])
+        collision_with_machine1 = any(collisions[k] for k in ["link1_machine1", "link2_machine1", "ee_machine1"])
+        collision_with_machine2 = any(collisions[k] for k in ["link1_machine2", "link2_machine2", "ee_machine2"])
 
-        # target에 도착하면 reset
+        
+        #res_boundary, _ = self.sim.checkCollision(self.boundary, self.wall)
+
+        reward_collision = 0.0
+        
         terminated = False
-        if distance < 0.1:
-            print(f"목표 도착! (Dist: {distance:.3f})")
-            reward += 10.0
-            terminated = True
+        done_reason = None
 
-        obs = self._get_vision_obs()
+        collision_detected = any(collisions.values())
+
+        
+        if collision_detected:
+            reward_collision = -200.0
+            terminated = True
+            done_reason = "collision"
+            if collision_with_wall:
+                print("벽 충돌! 에피소드 종료")
+            else:
+                print("머신 충돌! 에피소드 종료")
+        
+
+        reward_goal = 0.0
+
+
+        if distance_j2 < 0.07 and distance_ee < 0.07:
+            print(f"목표 도착! (J2 Dist: {distance_j2:.3f}, EE Dist: {distance_ee:.3f})")
+            reward_goal = 700.0
+            terminated = True
+            done_reason = "goal"
+
+        # reward = 보상 + 패널티
+        reward = reward_dist + reward_control + reward_goal + reward_collision
+
+        self.last_action = action
+        obs = self._get_obs()
+
         info = {
-            "distance": distance,
+            "distance_j2": distance_j2,
+            "distance_ee": distance_ee,
             "reward_dist": reward_dist,
-            "reward_ctrl": reward_control
+            "reward_ctrl": reward_control,
+            "reward_collision": reward_collision,
+            "reward_goal": reward_goal,
+            "done_reason": done_reason
         }
 
         self.current_step += 1
-        if self.current_step >= 3000: # 500 스텝 넘으면 강제 종료
+        if self.current_step >= 1500: # 500 스텝 넘으면 강제 종료
             truncated = True # gymnasium 최신 버전은 terminated 대신 truncated 사용 권장
         else:
             truncated = False

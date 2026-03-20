@@ -34,9 +34,13 @@ def evaluate_model(model_path, num_episodes=10):
 
 
                 if terminated:
-                    print(f" 성공! (Steps: {step})")
-                    success_count += 1
-                    total_steps_list.append(step)
+                    if info.get("done_reason") =="goal":
+                        print(f" 성공! (Steps: {step})")
+                        success_count += 1
+                        total_steps_list.append(step)
+                    else:
+                        print(f"실패! ({info.get('done_reason')})")
+                    
                     done = True
 
 
@@ -66,4 +70,4 @@ def evaluate_model(model_path, num_episodes=10):
 
 if __name__ == "__main__":
     # 저장했던 모델 이름 입력 (확장자 .zip은 생략)
-    evaluate_model("./exp/ppo_barista_robot_0129_1241", num_episodes=100)
+    evaluate_model("./exp/ppo_barista_robot_0319_1449", num_episodes=100)

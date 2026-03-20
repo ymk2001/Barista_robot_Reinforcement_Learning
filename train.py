@@ -26,7 +26,7 @@ def main():
         name=run_name,
         config={
             "policy_type": "CnnPolicy",
-            "total_timesteps": 100000,
+            "total_timesteps": 1000000,
             "learning_rate_start": 3e-4,
             "learning_rate_end": 1e-5,
             "env_id": "Barista_2D_Env",
@@ -46,11 +46,11 @@ def main():
         lr_schedule = get_linear_fn(start=3e-4, end=1e-5, end_fraction=1.0)
 
         # 모델 정의 (Vision Sensor 이므로 CnnPolicy 사용, PPO 내장 policy)
-        model = PPO("CnnPolicy", env, learning_rate=lr_schedule, verbose=1, tensorboard_log="./ppo_robot_tensorboard/")
+        model = PPO("MultiInputPolicy", env, learning_rate=lr_schedule, verbose=1, tensorboard_log="./ppo_robot_tensorboard/")
         print(f"--> 학습 시작 (WandB Project: Barista_Robot_RL / Run ID: {run.id})")
         # 학습 시작
         model.learn(
-            total_timesteps=100000,
+            total_timesteps=1000000,
             callback=WandbCallback(
                 gradient_save_freq=100,
                 model_save_path=f"models/{run.id}",
