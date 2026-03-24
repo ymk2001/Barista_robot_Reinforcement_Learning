@@ -314,7 +314,7 @@ class Barista_2D_Env(gym.Env):
         reward_goal = 0.0
 
 
-        if distance_j2 < 0.07 and distance_ee < 0.07:
+        if distance_j2 < 0.08 and distance_ee < 0.08:
             print(f"목표 도착! (J2 Dist: {distance_j2:.3f}, EE Dist: {distance_ee:.3f})")
             reward_goal = 700.0
             terminated = True

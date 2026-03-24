@@ -70,4 +70,4 @@ def evaluate_model(model_path, num_episodes=10):
 
 if __name__ == "__main__":
     # 저장했던 모델 이름 입력 (확장자 .zip은 생략)
-    evaluate_model("./exp/ppo_barista_robot_0319_1449", num_episodes=100)
+    evaluate_model("./exp/ppo_barista_robot_0323_1830", num_episodes=100)
